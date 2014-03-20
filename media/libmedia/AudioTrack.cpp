@@ -450,12 +450,13 @@ status_t AudioTrack::set(
         mAudioFlinger = audioFlinger;
         status_t status = NO_ERROR;
         mAudioDirectOutput = output;
+        mDirectClient = new DirectClient(this);
         mDirectTrack = audioFlinger->createDirectTrack( getpid(),
                                                         sampleRate,
                                                         channelMask,
                                                         mAudioDirectOutput,
                                                         &mSessionId,
-                                                        this,
+                                                        mDirectClient.get(),
                                                         streamType,
                                                         &status);
         if(status != NO_ERROR) {
@@ -1086,7 +1087,8 @@ status_t AudioTrack::createTrack_l(
     ALOGV("createTrack_l() output %d afLatency %d", output, afLatency);
 
     // The client's AudioTrack buffer is divided into n parts for purpose of wakeup by server, where
-    //  n = 1   fast track; nBuffering is ignored
+    //  n = 1   fast track with single buffering; nBuffering is ignored
+    //  n = 2   fast track with double buffering
     //  n = 2   normal track, no sample rate conversion
     //  n = 3   normal track, with sample rate conversion
     //          (pessimistic; some non-1:1 conversion ratios don't actually need triple-buffering)
@@ -1230,9 +1232,11 @@ status_t AudioTrack::createTrack_l(
             ALOGV("AUDIO_OUTPUT_FLAG_FAST successful; frameCount %u", frameCount);
             mAwaitBoost = true;
             if (sharedBuffer == 0) {
-                // double-buffering is not required for fast tracks, due to tighter scheduling
-                if (mNotificationFramesAct == 0 || mNotificationFramesAct > frameCount) {
-                    mNotificationFramesAct = frameCount;
+                // Theoretically double-buffering is not required for fast tracks,
+                // due to tighter scheduling.  But in practice, to accommodate kernels with
+                // scheduling jitter, and apps with computation jitter, we use double-buffering.
+                if (mNotificationFramesAct == 0 || mNotificationFramesAct > frameCount/nBuffering) {
+                    mNotificationFramesAct = frameCount/nBuffering;
                 }
             }
         } else {
@@ -2063,6 +2067,16 @@ status_t AudioTrack::getTimeStamp(uint64_t *tstamp) {
         ALOGE("Timestamp %lld ", *tstamp);
     }
     return NO_ERROR;
+}
+
+void AudioTrack::DirectClient::notify(int msg) {
+    sp<AudioTrack> track = mAudioTrack.promote();
+    if (track == 0) {
+        ALOGE("AudioTrack dead?");
+        return;
+    }
+
+    return track->notify(msg);
 }
 #endif
 
