@@ -1307,6 +1307,9 @@ status_t StagefrightRecorder::checkVideoEncoderCapabilities(
     else
 #endif
     {
+#ifdef USE_SUBMIT_ONE_INPUT_BUFFER
+        *supportsCameraSourceMetaDataMode = true;
+#else
         /* hardware codecs must support camera source meta data mode */
         Vector<CodecCapabilities> codecs;
         QueryCodecs(
@@ -1316,6 +1319,7 @@ status_t StagefrightRecorder::checkVideoEncoderCapabilities(
                  mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC : ""),
                  false /* decoder */, true /* hwCodec */, &codecs);
         *supportsCameraSourceMetaDataMode = codecs.size() > 0;
+#endif
         ALOGV("encoder %s camera source meta-data mode", *supportsCameraSourceMetaDataMode ?
               "supports" : "DOES NOT SUPPORT");
     }
